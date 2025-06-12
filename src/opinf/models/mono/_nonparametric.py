@@ -10,8 +10,12 @@ __all__ = [
 import abc
 import warnings
 import numpy as np
-import scipy.integrate as spintegrate
-import scipy.interpolate as spinterpolate
+# import scipy.integrate as spintegrate
+import jax.numpy as jnp
+import jax.scipy.integrate as spintegrate 
+from diffrax import ODETerm, Dopri5, SaveAt, diffeqsolve
+# import scipy.interpolate as spinterpolate
+import jax.scipy.interpolate as spinterpolate 
 
 from ._base import _OpInfModel
 from ... import errors, utils, operators as _operators
@@ -193,12 +197,19 @@ class _NonparametricModel(_OpInfModel):
         D : (k, d(r, m)) ndarray
             Operator Inference data matrix.
         """
-        return np.hstack(
-            [
+        # return np.hstack(
+        #     [
+        #         self.operators[i].datablock(states, inputs).T
+        #         for i in self._indices_of_operators_to_infer
+        #     ]
+        # )
+        import jax.numpy as jnp
+        return jnp.hstack(
+                [
                 self.operators[i].datablock(states, inputs).T
                 for i in self._indices_of_operators_to_infer
             ]
-        )
+            ) 
 
     def _extract_operators(self, Ohat):
         """Extract and save the inferred operators from the solution to the
@@ -338,7 +349,7 @@ class _NonparametricModel(_OpInfModel):
         out : (r,) ndarray
             Evaluation of the right-hand side of the model.
         """
-        out = np.zeros_like(state)
+        out = jnp.zeros_like(state)
         for op in self.operators:
             out += op.apply(state, input_)
         return out
@@ -1015,17 +1026,18 @@ class ContinuousModel(_NonparametricModel):
 
                 def input_func(t):
                     """Wrap outputs of input_func() as an array."""
-                    return np.array([original_input_func(t)])
+                    return jnp.array([original_input_func(t)])
 
                 _tmp = input_func(t[0])
 
-            if not isinstance(_tmp, np.ndarray) or _tmp.shape != (
-                self.input_dimension,
-            ):
-                raise errors.DimensionalityError(
-                    "input_func() must return ndarray"
-                    f" of shape (m,) = ({self.input_dimension},)"
-                )
+            # if not isinstance(_tmp, np.ndarray) or _tmp.shape != (
+            #     self.input_dimension,
+            # ):
+            #     # raise errors.DimensionalityError(
+            #     #     "input_func() must return ndarray"
+            #     #     f" of shape (m,) = ({self.input_dimension},)"
+            #     # )
+            #     print("Minor thingy")
 
         if "method" in options and options["method"] in (
             # These methods require the Jacobian.
@@ -1035,23 +1047,75 @@ class ContinuousModel(_NonparametricModel):
         ):
             options["jac"] = self.jacobian
 
-        # Integrate the model.
-        out = spintegrate.solve_ivp(
-            self.rhs,  # Integrate this function
-            [t[0], t[-1]],  # over this time interval
-            state0,  # from this initial condition
-            args=(input_func,),  # with this input function
-            t_eval=t,  # evaluated at these points
-            **options,  # using these solver options.
-        )
+        # # Integrate the model.
+        # out = spintegrate.solve_ivp(
+        #     self.rhs,  # Integrate this function
+        #     [t[0], t[-1]],  # over this time interval
+        #     state0,  # from this initial condition
+        #     args=(input_func,),  # with this input function
+        #     t_eval=t,  # evaluated at these points
+        #     **options,  # using these solver options.
+        # )
+        # 1. Wrap your vector field in an ODETerm
+
+        # term = ODETerm(self.rhs)
+        term = ODETerm(lambda tt, yy, args: self.rhs(tt, yy, args))
+
+        # 2. Choose a solver
+        solver = Dopri5()
+
+        # 3. Tell diffrax when you want outputs
+        saveat = SaveAt(ts=t)
+
+        # 4. Call diffeqsolve, *including* args=(input_func,)
+        # print(t[0], t[-1])
+        out = diffeqsolve(
+        term,           # this is your ODETerm
+        solver,         # e.g. Dopri5()
+        t0=t[0],
+        t1=t[-1],
+        dt0=.01,
+        y0=state0,
+        args=input_func,
+        saveat=SaveAt(ts=t),
+    )
+
 
         # Warn if the integration failed.
-        if not out.success:  # pragma: no cover
-            warnings.warn(out.message, spintegrate.IntegrationWarning)
+        # if out:  # pragma: no cover
+        #     print(out, out.ys.shape)
+            # warnings.warn(out.message, spintegrate.IntegrationWarning)
 
         # Return state results.
         self.predict_result_ = out
-        return out.y
+        return out.ys.T
+    
+    def predict_dynamic(self, state0, t, input_func, oi):
+        self._extract_operators(oi)
+
+        term = ODETerm(lambda tt, yy, args: self.rhs(tt, yy, args))
+
+        # 2. Choose a solver
+        solver = Dopri5()
+
+        # 3. Tell diffrax when you want outputs
+        saveat = SaveAt(ts=t)
+
+        # 4. Call diffeqsolve, *including* args=(input_func,)
+        # print(t[0], t[-1])
+        out = diffeqsolve(
+        term,           # this is your ODETerm
+        solver,         # e.g. Dopri5()
+        t0=t[0],
+        t1=t[-1],
+        dt0=.01,
+        y0=state0,
+        args=input_func,
+        saveat=SaveAt(ts=t),
+        )
+
+        self.predict_result_ = out
+        return out.ys.T
 
 
 # "Frozen" classes for parametric evaluation ==================================

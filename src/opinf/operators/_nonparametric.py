@@ -1,3 +1,5 @@
+import jax.numpy as jnp
+import jax.scipy.linalg as la
 # operators/_nonparametric.py
 """Classes for OpInf operators with no external parameter dependencies."""
 
@@ -11,9 +13,74 @@ __all__ = [
     "StateInputOperator",
 ]
 
+def khatri_rao(a, b):
+    r"""
+    Khatri-rao product
+
+    A column-wise Kronecker product of two matrices
+
+    Parameters
+    ----------
+    a : (n, k) array_like
+        Input array
+    b : (m, k) array_like
+        Input array
+
+    Returns
+    -------
+    c:  (n*m, k) ndarray
+        Khatri-rao product of `a` and `b`.
+
+    Notes
+    -----
+    The mathematical definition of the Khatri-Rao product is:
+
+    .. math::
+
+        (A_{ij}  \bigotimes B_{ij})_{ij}
+
+    which is the Kronecker product of every column of A and B, e.g.::
+
+        c = np.vstack([np.kron(a[:, k], b[:, k]) for k in range(b.shape[1])]).T
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from scipy import linalg
+    >>> a = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> b = np.array([[3, 4, 5], [6, 7, 8], [2, 3, 9]])
+    >>> linalg.khatri_rao(a, b)
+    array([[ 3,  8, 15],
+           [ 6, 14, 24],
+           [ 2,  6, 27],
+           [12, 20, 30],
+           [24, 35, 48],
+           [ 8, 15, 54]])
+
+    """
+    a = jnp.asarray(a)
+    b = jnp.asarray(b)
+
+    if not (a.ndim == 2 and b.ndim == 2):
+        raise ValueError("The both arrays should be 2-dimensional.")
+
+    if not a.shape[1] == b.shape[1]:
+        raise ValueError("The number of columns for both arrays "
+                         "should be equal.")
+
+    # accommodate empty arrays
+    if a.size == 0 or b.size == 0:
+        m = a.shape[0] * b.shape[0]
+        n = a.shape[1]
+        return jnp.empty_like(a, shape=(m, n))
+
+    # c = np.vstack([np.kron(a[:, k], b[:, k]) for k in range(b.shape[1])]).T
+    c = a[..., :, jnp.newaxis, :] * b[..., jnp.newaxis, :, :]
+    return c.reshape((-1,) + c.shape[2:])
+
 import itertools
 import numpy as np
-import scipy.linalg as la
+# import scipy.linalg as la
 import scipy.sparse as sparse
 import scipy.special as special
 
@@ -84,7 +151,7 @@ class ConstantOperator(OpInfOperator):
         # Ensure that the operator is one-dimensional.
         if entries.ndim != 1:
             if entries.ndim == 2 and 1 in entries.shape:
-                entries = np.ravel(entries)
+                entries = jnp.ravel(entries)
             else:
                 raise ValueError(
                     "ConstantOperator entries must be one-dimensional"
@@ -172,7 +239,9 @@ class ConstantOperator(OpInfOperator):
         block : (1, k) ndarray
             Row vector of ones.
         """
-        return np.ones((1, np.atleast_1d(states).shape[-1]))
+        # return np.ones((1, np.atleast_1d(states).shape[-1]))
+        import jax.numpy as jnp
+        return jnp.ones((1, jnp.atleast_1d(states).shape[-1]))
 
     @staticmethod
     def operator_dimension(r=None, m=None):
@@ -352,7 +421,8 @@ class LinearOperator(OpInfOperator):
         state : (r, k) ndarray
             State vectors. Each column is a single state vector.
         """
-        return np.atleast_2d(states)
+        import jax.numpy as jnp
+        return jnp.atleast_2d(states)
 
     @staticmethod
     def operator_dimension(r, m=None):
@@ -589,7 +659,8 @@ class QuadraticOperator(OpInfOperator):
         product : (r(r+1)/2, k) ndarray
             Compressed Khatri--Rao product of ``states`` with itself.
         """
-        return QuadraticOperator.ckron(np.atleast_2d(states))
+        import jax.numpy as jnp
+        return QuadraticOperator.ckron(jnp.atleast_2d(states))
 
     @staticmethod
     def operator_dimension(r, m=None):
@@ -696,7 +767,8 @@ class QuadraticOperator(OpInfOperator):
         product : (r(r+1)/2,) or (r(r+1)/2, k) ndarray
             The compressed Kronecker product of ``state`` with itself.
         """
-        return np.concatenate(
+        import jax.numpy as jnp
+        return jnp.concatenate(
             [state[i] * state[: i + 1] for i in range(state.shape[0])],
             axis=0,
         )
@@ -1081,7 +1153,7 @@ class CubicOperator(OpInfOperator):
         product_ : (r(r+1)(r+2)/6, k) ndarray
             Compressed triple Khatri--Rao product of ``states`` with itself.
         """
-        return CubicOperator.ckron(np.atleast_2d(states))
+        return CubicOperator.ckron(jnp.atleast_2d(states))
 
     @staticmethod
     def operator_dimension(r, m=None):
@@ -1147,8 +1219,9 @@ class CubicOperator(OpInfOperator):
             The compressed triple Kronecker product of ``state`` with itself.
         """
         state2 = QuadraticOperator.ckron(state)
-        lens = special.binom(np.arange(2, len(state) + 2), 2).astype(int)
-        return np.concatenate(
+        import jax.scipy.special as special
+        lens = special.binom(jnp.arange(2, len(state) + 2), 2).astype(int)
+        return jnp.concatenate(
             [state[i] * state2[: lens[i]] for i in range(state.shape[0])],
             axis=0,
         )
@@ -1563,7 +1636,7 @@ class QuarticOperator(OpInfOperator):
         product_ : (r(r+1)(r+2)(r+3)/24, k) ndarray
             Compressed triple Khatri--Rao product of ``states`` with itself.
         """
-        return QuarticOperator.ckron(np.atleast_2d(states))
+        return QuarticOperator.ckron(jnp.atleast_2d(states))
 
     @staticmethod
     def operator_dimension(r, m=None):
@@ -1633,8 +1706,9 @@ class QuarticOperator(OpInfOperator):
             The compressed triple Kronecker product of ``state`` with itself.
         """
         state3 = CubicOperator.ckron(state)
-        lens = special.binom(np.arange(3, len(state) + 3), 3).astype(int)
-        return np.concatenate(
+        import jax.scipy.special as special
+        lens = special.binom(jnp.arange(3, len(state) + 3), 3).astype(int)
+        return jnp.concatenate(
             [state[i] * state3[: lens[i]] for i in range(state.shape[0])],
             axis=0,
         )
@@ -1975,7 +2049,7 @@ class InputOperator(OpInfOperator, InputMixin):
         inputs : (m, k) ndarray
             Input vectors. Each column is a single input vector.
         """
-        return np.atleast_2d(inputs)
+        return jnp.atleast_2d(inputs)
 
     @staticmethod
     def operator_dimension(r, m):
@@ -2101,10 +2175,10 @@ class StateInputOperator(OpInfOperator, InputMixin):
         if self.shape[1] == 1:
             return self.entries[0, 0] * input_ * state  # r = m = 1.
         if single:
-            return self.entries @ np.kron(input_, state)  # k = 1, rm > 1.
-        Q_ = np.atleast_2d(state)
-        U = np.atleast_2d(input_)
-        return self.entries @ la.khatri_rao(U, Q_)  # k > 1, rm > 1.
+            return self.entries @ jnp.kron(input_, state)  # k = 1, rm > 1.
+        Q_ = jnp.atleast_2d(state)
+        U = jnp.atleast_2d(input_)
+        return self.entries @ khatri_rao(U, Q_)  # k > 1, rm > 1.
 
     @utils.requires("entries")
     def jacobian(self, state, input_):
@@ -2196,7 +2270,7 @@ class StateInputOperator(OpInfOperator, InputMixin):
         product_ : (m, k) ndarray or None
             Compressed Khatri-Rao product of the ``input_`` and the ``states``.
         """
-        return la.khatri_rao(np.atleast_2d(inputs), np.atleast_2d(states))
+        return khatri_rao(jnp.atleast_2d(inputs), jnp.atleast_2d(states))
 
     @staticmethod
     def operator_dimension(r, m):

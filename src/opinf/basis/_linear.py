@@ -186,6 +186,7 @@ class LinearBasis(BasisTemplate):
             entries of such at the entries specified by ``locs``.
         """
         Vr = self.entries if locs is None else self.entries[locs]
+        print(Vr.shape, states_compressed.shape)
         return Vr @ states_compressed
 
     # Visualizations ----------------------------------------------------------

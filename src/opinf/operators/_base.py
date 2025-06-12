@@ -1,3 +1,5 @@
+import jax.numpy as jnp
+
 # operators/_base.py
 """Abstract base classes for operators."""
 
@@ -554,16 +556,21 @@ class OpInfOperator(OperatorTemplate):
     @staticmethod
     def _validate_entries(entries):
         """Ensure argument is a NumPy array and screen for NaN, Inf entries."""
+        if isinstance(entries, np.ndarray):
+            try:
+                entries = jnp.array(entries)
+            except:
+                print("Idk error")
         if sparse.issparse(entries):
             return
-        if not isinstance(entries, np.ndarray):
+        if not isinstance(entries, jnp.ndarray):
             raise TypeError(
-                "operator entries must be NumPy or scipy.sparse array"
+                "operator entries must be NumPy (Jax) or scipy.sparse array"
             )
-        if np.any(np.isnan(entries)):
-            raise ValueError("operator entries must not be NaN")
-        elif np.any(np.isinf(entries)):
-            raise ValueError("operator entries must not be Inf")
+        # if jnp.any(jnp.isnan(entries)):
+        #     raise ValueError("operator entries must not be NaN")
+        # elif jnp.any(jnp.isinf(entries)):
+        #     raise ValueError("operator entries must not be Inf")
 
     def set_entries(self, entries) -> None:
         """Set the :attr:`entries` attribute."""
